@@ -1,23 +1,122 @@
 import * as vscode from "vscode";
 import * as http from "http";
 
-let server: http.Server | undefined;
+import { toBreakpointEntries } from "./breakpointMapper";
+import { resolveConfiguredPort } from "./config";
+import { createBreakpointRequestHandler } from "./httpHandler";
+import { BreakpointEntry } from "./types";
 
-function getBreakpoints() {
-  return vscode.debug.breakpoints
+let server: http.Server | undefined;
+let currentPort: number | undefined;
+
+function getBreakpoints(): BreakpointEntry[] {
+  const sourceBreakpoints = vscode.debug.breakpoints
     .filter(
       (bp): bp is vscode.SourceBreakpoint =>
         bp instanceof vscode.SourceBreakpoint
     )
     .map((bp) => ({
-      filename: bp.location.uri.fsPath,
-      line_number: bp.location.range.start.line + 1,
+      fsPath: bp.location.uri.fsPath,
+      uri: bp.location.uri.toString(),
+      zeroBasedLine: bp.location.range.start.line,
     }));
+
+  return toBreakpointEntries(sourceBreakpoints);
+}
+
+function closeServer(): Promise<void> {
+  if (!server) {
+    return Promise.resolve();
+  }
+
+  const activeServer = server;
+  server = undefined;
+  currentPort = undefined;
+
+  return new Promise((resolve) => {
+    try {
+      activeServer.close(() => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
+function attachRuntimeErrorHandler(targetServer: http.Server, port: number): void {
+  targetServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      vscode.window.showErrorMessage(
+        `Breakpoint Server: Port ${port} is already in use`
+      );
+      return;
+    }
+
+    vscode.window.showErrorMessage(`Breakpoint Server error: ${err.message}`);
+  });
+}
+
+function listenOnPort(targetServer: http.Server, port: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onListening = () => {
+      targetServer.off("error", onStartError);
+      resolve();
+    };
+
+    const onStartError = (err: Error) => {
+      targetServer.off("listening", onListening);
+      reject(err);
+    };
+
+    targetServer.once("listening", onListening);
+    targetServer.once("error", onStartError);
+    targetServer.listen(port);
+  });
+}
+
+async function startServer(port: number): Promise<void> {
+  const previousServer = server;
+  const nextServer = http.createServer(
+    createBreakpointRequestHandler(getBreakpoints)
+  );
+
+  attachRuntimeErrorHandler(nextServer, port);
+
+  try {
+    await listenOnPort(nextServer, port);
+  } catch (err) {
+    try {
+      nextServer.close();
+    } catch {
+      // No-op.
+    }
+    throw err;
+  }
+
+  server = nextServer;
+  currentPort = port;
+
+  if (previousServer) {
+    try {
+      previousServer.close();
+    } catch {
+      // No-op.
+    }
+  }
+
+  vscode.window.showInformationMessage(
+    `Breakpoint Server running on port ${port}`
+  );
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration("breakpointServer");
-  const port = config.get<number>("port", 4567);
+  const portSetting = vscode.workspace
+    .getConfiguration("breakpointServer")
+    .get<number>("port");
+  const portResolution = resolveConfiguredPort(portSetting);
+
+  if (portResolution.warning) {
+    vscode.window.showWarningMessage(portResolution.warning);
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand("breakpointServer.showOutput", async () => {
@@ -30,46 +129,50 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  server = http.createServer((req, res) => {
-    if (req.url !== "/get-breakpoints") {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Not found" }));
-      return;
-    }
-
-    if (req.method !== "GET") {
-      res.writeHead(405, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Method not allowed" }));
-      return;
-    }
-
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(getBreakpoints(), null, 2));
-  });
-
-  server.listen(port, () => {
-    vscode.window.showInformationMessage(
-      `Breakpoint Server running on port ${port}`
-    );
-  });
-
-  server.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE") {
+  startServer(portResolution.port).catch((err: NodeJS.ErrnoException) => {
+    if (err.code !== "EADDRINUSE") {
       vscode.window.showErrorMessage(
-        `Breakpoint Server: Port ${port} is already in use`
+        `Breakpoint Server failed to start: ${err.message}`
       );
-    } else {
-      vscode.window.showErrorMessage(`Breakpoint Server error: ${err.message}`);
     }
   });
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration("breakpointServer.port")) {
+        return;
+      }
+
+      const latestPortSetting = vscode.workspace
+        .getConfiguration("breakpointServer")
+        .get<number>("port");
+      const latestResolution = resolveConfiguredPort(latestPortSetting);
+
+      if (latestResolution.warning) {
+        vscode.window.showWarningMessage(latestResolution.warning);
+      }
+
+      if (currentPort === latestResolution.port) {
+        return;
+      }
+
+      startServer(latestResolution.port).catch((err: NodeJS.ErrnoException) => {
+        if (err.code !== "EADDRINUSE") {
+          vscode.window.showErrorMessage(
+            `Breakpoint Server failed to restart: ${err.message}`
+          );
+        }
+      });
+    })
+  );
 
   context.subscriptions.push({
     dispose: () => {
-      server?.close();
+      void closeServer();
     },
   });
 }
 
 export function deactivate() {
-  server?.close();
+  return closeServer();
 }
