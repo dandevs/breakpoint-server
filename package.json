@@ -4,6 +4,10 @@
   "description": "Serves all VS Code breakpoints as JSON over HTTP on a configurable port",
   "version": "0.0.1",
   "publisher": "local",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dandevs/breakpoint-server"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -35,7 +39,8 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "build": "npm run compile && vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -31,6 +31,12 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   server = http.createServer((req, res) => {
+    if (req.url !== "/get-breakpoints") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found" }));
+      return;
+    }
+
     if (req.method !== "GET") {
       res.writeHead(405, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Method not allowed" }));
