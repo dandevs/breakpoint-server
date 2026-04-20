@@ -1,0 +1,45 @@
+{
+  "name": "breakpoint-server",
+  "displayName": "Breakpoint Server",
+  "description": "Serves all VS Code breakpoints as JSON over HTTP on a configurable port",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:breakpointServer.showOutput"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "breakpointServer.showOutput",
+        "title": "Show Breakpoints Output"
+      }
+    ],
+    "configuration": {
+      "title": "Breakpoint Server",
+      "properties": {
+        "breakpointServer.port": {
+          "type": "number",
+          "default": 4567,
+          "description": "The port the breakpoint HTTP server listens on"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
