@@ -11,14 +11,14 @@ export function toBreakpointEntries(
 ): BreakpointEntry[] {
   return breakpoints
     .map((bp) => ({
-      filename: bp.fsPath || bp.uri,
+      filepath: (bp.fsPath || bp.uri).replace(/\\/g, "/"),
       line_number: bp.zeroBasedLine + 1,
     }))
     .sort((a, b) => {
-      if (a.filename === b.filename) {
+      if (a.filepath === b.filepath) {
         return a.line_number - b.line_number;
       }
 
-      return a.filename.localeCompare(b.filename);
+      return a.filepath.localeCompare(b.filepath);
     });
 }

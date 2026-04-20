@@ -1,4 +1,4 @@
 export interface BreakpointEntry {
-  filename: string;
+  filepath: string;
   line_number: number;
 }

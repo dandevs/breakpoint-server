@@ -18,10 +18,22 @@ test("toBreakpointEntries maps line numbers to 1-based", () => {
   ]);
 
   assert.deepEqual(result, [
-    { filename: "C:/repo/src/a.ts", line_number: 1 },
+    { filepath: "C:/repo/src/a.ts", line_number: 1 },
     {
-      filename: "vscode-remote://ssh-remote+box/work/b.ts",
+      filepath: "vscode-remote://ssh-remote+box/work/b.ts",
       line_number: 42,
     },
   ]);
+});
+
+test("toBreakpointEntries normalizes backslashes to forward slashes", () => {
+  const result = toBreakpointEntries([
+    {
+      fsPath: "C:\\Users\\Dan\\projects\\app\\src\\main.c",
+      uri: "",
+      zeroBasedLine: 9,
+    },
+  ]);
+
+  assert.equal(result[0].filepath, "C:/Users/Dan/projects/app/src/main.c");
 });

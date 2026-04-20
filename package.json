@@ -2,7 +2,7 @@
   "name": "breakpoint-server",
   "displayName": "Breakpoint Server",
   "description": "Serves all VS Code breakpoints as JSON over HTTP on a configurable port",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "dandevs",
   "repository": {
     "type": "git",
@@ -16,7 +16,8 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:breakpointServer.showOutput"
+    "onCommand:breakpointServer.showOutput",
+    "onCommand:breakpointServer.getPort"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -24,6 +25,10 @@
       {
         "command": "breakpointServer.showOutput",
         "title": "Show Breakpoints Output"
+      },
+      {
+        "command": "breakpointServer.getPort",
+        "title": "Get Breakpoint Server Port"
       }
     ],
     "configuration": {

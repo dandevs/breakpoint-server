@@ -5,6 +5,7 @@ import * as http from "http";
 
 import {
   BREAKPOINTS_PATH,
+  INFO_PATH,
   createBreakpointRequestHandler,
 } from "../src/httpHandler";
 
@@ -43,97 +44,131 @@ function requestJson(
   });
 }
 
-test("handler serves breakpoints on GET /get-breakpoints", async (t) => {
-  const data = [{ filename: "C:/a.ts", line_number: 3 }];
-  const server = http.createServer(createBreakpointRequestHandler(() => data));
+function withServer(
+  handler: http.RequestListener,
+  fn: (port: number) => Promise<void>
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(handler);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close(() => reject(new Error("Failed to get server address")));
+        return;
+      }
 
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
+      fn(address.port)
+        .then(() => {
+          server.close(() => resolve());
+        })
+        .catch((err) => {
+          server.close(() => reject(err));
+        });
+    });
   });
+}
 
-  t.after(() =>
-    new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    })
-  );
-
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-
-  const response = await requestJson("GET", BREAKPOINTS_PATH, address.port);
-  assert.equal(response.statusCode, 200);
-  assert.match(
-    response.headers["content-type"] ?? "",
-    /application\/json; charset=utf-8/
-  );
-  assert.deepEqual(JSON.parse(response.body), data);
+const defaultInfo = () => ({
+  projectName: "breakpoint-server",
+  projectPath: "C:/repo/breakpoint-server",
 });
 
-test("handler supports query string and trailing slash", async (t) => {
-  const data = [{ filename: "C:/a.ts", line_number: 1 }];
-  const server = http.createServer(createBreakpointRequestHandler(() => data));
+test("handler serves breakpoints on GET /get-breakpoints", async () => {
+  const data = [{ filepath: "C:/a.ts", line_number: 3 }];
+  const handler = createBreakpointRequestHandler(() => data, defaultInfo);
 
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
+  await withServer(handler, async (port) => {
+    const response = await requestJson("GET", BREAKPOINTS_PATH, port);
+    assert.equal(response.statusCode, 200);
+    assert.match(
+      response.headers["content-type"] ?? "",
+      /application\/json; charset=utf-8/
+    );
+    assert.deepEqual(JSON.parse(response.body), data);
   });
-
-  t.after(() =>
-    new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    })
-  );
-
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-
-  const response = await requestJson(
-    "GET",
-    `${BREAKPOINTS_PATH}/?pretty=true`,
-    address.port
-  );
-  assert.equal(response.statusCode, 200);
-  assert.deepEqual(JSON.parse(response.body), data);
 });
 
-test("handler returns 405 on non-GET and sets Allow header", async (t) => {
-  const server = http.createServer(createBreakpointRequestHandler(() => []));
+test("handler supports query string and trailing slash", async () => {
+  const data = [{ filepath: "C:/a.ts", line_number: 1 }];
+  const handler = createBreakpointRequestHandler(() => data, defaultInfo);
 
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
+  await withServer(handler, async (port) => {
+    const response = await requestJson(
+      "GET",
+      `${BREAKPOINTS_PATH}/?pretty=true`,
+      port
+    );
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(JSON.parse(response.body), data);
   });
-
-  t.after(() =>
-    new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    })
-  );
-
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-
-  const response = await requestJson("POST", BREAKPOINTS_PATH, address.port);
-  assert.equal(response.statusCode, 405);
-  assert.equal(response.headers.allow, "GET");
-  assert.deepEqual(JSON.parse(response.body), { error: "Method not allowed" });
 });
 
-test("handler returns 404 for unknown path", async (t) => {
-  const server = http.createServer(createBreakpointRequestHandler(() => []));
+test("handler returns 405 on non-GET and sets Allow header", async () => {
+  const handler = createBreakpointRequestHandler(() => [], defaultInfo);
 
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
+  await withServer(handler, async (port) => {
+    const response = await requestJson("POST", BREAKPOINTS_PATH, port);
+    assert.equal(response.statusCode, 405);
+    assert.equal(response.headers.allow, "GET");
+    assert.deepEqual(JSON.parse(response.body), {
+      error: "Method not allowed",
+    });
   });
+});
 
-  t.after(() =>
-    new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    })
-  );
+test("handler returns 404 for unknown path", async () => {
+  const handler = createBreakpointRequestHandler(() => [], defaultInfo);
 
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
+  await withServer(handler, async (port) => {
+    const response = await requestJson("GET", "/wrong", port);
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(JSON.parse(response.body), { error: "Not found" });
+  });
+});
 
-  const response = await requestJson("GET", "/wrong", address.port);
-  assert.equal(response.statusCode, 404);
-  assert.deepEqual(JSON.parse(response.body), { error: "Not found" });
+test("handler serves project info on GET /info", async () => {
+  const info = { projectName: "my-app", projectPath: "/home/user/my-app" };
+  const handler = createBreakpointRequestHandler(() => [], () => info);
+
+  await withServer(handler, async (port) => {
+    const response = await requestJson("GET", INFO_PATH, port);
+    assert.equal(response.statusCode, 200);
+    assert.match(
+      response.headers["content-type"] ?? "",
+      /application\/json; charset=utf-8/
+    );
+    assert.deepEqual(JSON.parse(response.body), info);
+  });
+});
+
+test("handler returns null info when no workspace", async () => {
+  const info = { projectName: null, projectPath: null };
+  const handler = createBreakpointRequestHandler(() => [], () => info);
+
+  await withServer(handler, async (port) => {
+    const response = await requestJson("GET", INFO_PATH, port);
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(JSON.parse(response.body), info);
+  });
+});
+
+test("handler returns 405 on POST /info", async () => {
+  const handler = createBreakpointRequestHandler(() => [], defaultInfo);
+
+  await withServer(handler, async (port) => {
+    const response = await requestJson("POST", INFO_PATH, port);
+    assert.equal(response.statusCode, 405);
+    assert.equal(response.headers.allow, "GET");
+  });
+});
+
+test("handler supports /info with trailing slash and query", async () => {
+  const info = { projectName: "test", projectPath: "/test" };
+  const handler = createBreakpointRequestHandler(() => [], () => info);
+
+  await withServer(handler, async (port) => {
+    const response = await requestJson("GET", "/info/?v=1", port);
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(JSON.parse(response.body), info);
+  });
 });
