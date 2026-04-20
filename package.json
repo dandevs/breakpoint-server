@@ -3,7 +3,7 @@
   "displayName": "Breakpoint Server",
   "description": "Serves all VS Code breakpoints as JSON over HTTP on a configurable port",
   "version": "0.0.1",
-  "publisher": "local",
+  "publisher": "dandevs",
   "repository": {
     "type": "git",
     "url": "https://github.com/dandevs/breakpoint-server"
